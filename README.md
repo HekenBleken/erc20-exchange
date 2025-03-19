@@ -8,9 +8,9 @@ A decentralized exchange for ERC-20 tokens on the Sepolia network, featuring:
 
 ## Deployed Contracts
 
-- Token1: [YOUR_TOKEN1_ADDRESS]
-- Token2: [YOUR_TOKEN2_ADDRESS]
-- Exchange: [YOUR_EXCHANGE_ADDRESS]
+- Token1: 0x3cf59aBB95Aa0D7c9dCae3527314A0DdD6c7717a
+- Token2: 0x92e979eE109e62AC9aEdBD8171756e32C4229393
+- Exchange: 0x66b55d43C25900EB09a3146df79AaF254e37239f
 
 ## Setup and Deployment
 
