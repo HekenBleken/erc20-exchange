@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Token Exchange</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <!-- Import ethers directly from CDN -->
+<script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+</head>
+<body class="bg-gray-100">
+  <div class="container mx-auto px-4 py-8">
+    <h1 class="text-3xl font-bold mb-8 text-center">Token Exchange</h1>
+    
+    <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+      <h2 class="text-xl font-semibold mb-4">Connect Wallet</h2>
+      <button id="connectButton" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+        Connect to MetaMask
+      </button>
+      <p id="walletStatus" class="mt-2 text-gray-600">Not connected</p>
+    </div>
+    
+    <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+      <h2 class="text-xl font-semibold mb-4">Token Balances</h2>
+      <div id="balances" class="grid grid-cols-2 gap-4">
+        <div>
+          <p class="font-medium">Token1 (TKN1):</p>
+          <p id="token1Balance">-</p>
+        </div>
+        <div>
+          <p class="font-medium">Token2 (TKN2):</p>
+          <p id="token2Balance">-</p>
+        </div>
+      </div>
+    </div>
+    
+    <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+      <h2 class="text-xl font-semibold mb-4">Exchange Tokens</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Token1 to Token2 -->
+        <div class="border p-4 rounded">
+          <h3 class="font-medium mb-2">Swap Token1 for Token2</h3>
+          <div class="mb-4">
+            <label class="block text-gray-700 mb-1">Amount of Token1</label>
+            <input id="token1Amount" type="number" class="w-full p-2 border rounded" min="0" step="1">
+          </div>
+          <p id="token1Estimate" class="text-sm text-gray-600 mb-2">You will receive: 0 Token2</p>
+          <button id="swapToken1Button" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 w-full">
+            Swap
+          </button>
+        </div>
+        
+        <!-- Token2 to Token1 -->
+        <div class="border p-4 rounded">
+          <h3 class="font-medium mb-2">Swap Token2 for Token1</h3>
+          <div class="mb-4">
+            <label class="block text-gray-700 mb-1">Amount of Token2</label>
+            <input id="token2Amount" type="number" class="w-full p-2 border rounded" min="0" step="1">
+          </div>
+          <p id="token2Estimate" class="text-sm text-gray-600 mb-2">You will receive: 0 Token1</p>
+          <button id="swapToken2Button" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 w-full">
+            Swap
+          </button>
+        </div>
+      </div>
+    </div>
+    
+    <div id="adminPanel" class="bg-white p-6 rounded-lg shadow-md hidden">
+      <h2 class="text-xl font-semibold mb-4">Admin Panel</h2>
+      <div class="mb-4">
+        <p class="mb-2">Current Rate: <span id="currentRate">-</span></p>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-gray-700 mb-1">New Numerator</label>
+            <input id="newNumerator" type="number" class="w-full p-2 border rounded" min="1" step="1">
+          </div>
+          <div>
+            <label class="block text-gray-700 mb-1">New Denominator</label>
+            <input id="newDenominator" type="number" class="w-full p-2 border rounded" min="1" step="1">
+          </div>
+        </div>
+        <button id="updateRateButton" class="mt-2 bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600">
+          Update Rate
+        </button>
+      </div>
+    </div>
+    
+    <div id="transactionStatus" class="fixed bottom-0 left-0 right-0 bg-gray-800 text-white p-4 transform translate-y-full transition-transform duration-300">
+      Transaction processing...
+    </div>
+  </div>
+
+  <script>
+    // Contract addresses
+    const token1Address = "0x3cf59aBB95Aa0D7c9dCae3527314A0DdD6c7717a";
+    const token2Address = "0x92e979eE109e62AC9aEdBD8171756e32C4229393";
+    const exchangeAddress = "0x66b55d43C25900EB09a3146df79AaF254e37239f";
+
+    // Contract ABIs
+    const tokenAbi = [
+      "function balanceOf(address owner) view returns (uint256)",
+      "function approve(address spender, uint256 amount) returns (bool)",
+      "function allowance(address owner, address spender) view returns (uint256)",
+      "function transfer(address to, uint256 amount) returns (bool)"
+    ];
+
+    const exchangeAbi = [
+      "function token1() view returns (address)",
+      "function token2() view returns (address)",
+      "function rateNumerator() view returns (uint256)",
+      "function rateDenominator() view returns (uint256)",
+      "function exchangeToken1ForToken2(uint256 token1Amount) returns (uint256)",
+      "function exchangeToken2ForToken1(uint256 token2Amount) returns (uint256)",
+      "function updateExchangeRate(uint256 newNumerator, uint256 newDenominator)",
+      "function owner() view returns (address)"
+    ];
+
+    // Global variables
+    let provider;
+    let signer;
+    let userAddress;
+    let token1Contract;
+    let token2Contract;
+    let exchangeContract;
+    let exchangeRate = { numerator: 0, denominator: 0 };
+
+    // DOM elements
+    const connectButton = document.getElementById('connectButton');
+    const walletStatus = document.getElementById('walletStatus');
+    const token1Balance = document.getElementById('token1Balance');
+    const token2Balance = document.getElementById('token2Balance');
+    const token1Amount = document.getElementById('token1Amount');
+    const token2Amount = document.getElementById('token2Amount');
+    const token1Estimate = document.getElementById('token1Estimate');
+    const token2Estimate = document.getElementById('token2Estimate');
+    const swapToken1Button = document.getElementById('swapToken1Button');
+    const swapToken2Button = document.getElementById('swapToken2Button');
+    const adminPanel = document.getElementById('adminPanel');
+    const currentRate = document.getElementById('currentRate');
+    const newNumerator = document.getElementById('newNumerator');
+    const newDenominator = document.getElementById('newDenominator');
+    const updateRateButton = document.getElementById('updateRateButton');
+    const transactionStatus = document.getElementById('transactionStatus');
+
+    // Connect to MetaMask
+    connectButton.addEventListener('click', async () => {
+      try {
+        // Check if MetaMask is installed
+        if (typeof window.ethereum === 'undefined') {
+          alert('MetaMask is not installed. Please install it to use this app.');
+          return;
+        }
+        
+        // Request account access
+        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+        userAddress = accounts[0];
+        
+        // Create provider and signer
+        provider = new ethers.providers.Web3Provider(window.ethereum);
+        signer = provider.getSigner();
+        
+        // Initialize contracts
+        token1Contract = new ethers.Contract(token1Address, tokenAbi, signer);
+        token2Contract = new ethers.Contract(token2Address, tokenAbi, signer);
+        exchangeContract = new ethers.Contract(exchangeAddress, exchangeAbi, signer);
+        
+        // Update UI
+        walletStatus.textContent = `Connected: ${userAddress.substring(0, 6)}...${userAddress.substring(38)}`;
+        connectButton.textContent = 'Connected';
+        connectButton.disabled = true;
+        
+        // Load balances and exchange rate
+        await updateBalances();
+        await updateExchangeRate();
+        
+        // Check if user is owner to show admin panel
+        const owner = await exchangeContract.owner();
+        if (userAddress.toLowerCase() === owner.toLowerCase()) {
+          adminPanel.classList.remove('hidden');
+        }
+        
+        // Setup event listeners
+        setupEventListeners();
+        
+      } catch (error) {
+        console.error('Connection error:', error);
+        alert('Failed to connect to MetaMask: ' + error.message);
+      }
+    });
+
+    // Setup event listeners
+    function setupEventListeners() {
+      // Update estimates when amount changes
+      token1Amount.addEventListener('input', updateToken1Estimate);
+      token2Amount.addEventListener('input', updateToken2Estimate);
+      
+      // Swap buttons
+      swapToken1Button.addEventListener('click', swapToken1ForToken2);
+      swapToken2Button.addEventListener('click', swapToken2ForToken1);
+      
+      // Update rate button
+      updateRateButton.addEventListener('click', updateRate);
+    }
+
+    // Update token balances
+    async function updateBalances() {
+      try {
+        const balance1 = await token1Contract.balanceOf(userAddress);
+        const balance2 = await token2Contract.balanceOf(userAddress);
+        
+        token1Balance.textContent = `${ethers.utils.formatUnits(balance1, 18)}`;
+        token2Balance.textContent = `${ethers.utils.formatUnits(balance2, 18)}`;
+      } catch (error) {
+        console.error('Failed to update balances:', error);
+      }
+    }
+
+    // Update exchange rate
+    async function updateExchangeRate() {
+      try {
+        const numerator = await exchangeContract.rateNumerator();
+        const denominator = await exchangeContract.rateDenominator();
+        
+        exchangeRate = {
+          numerator: numerator.toNumber(),
+          denominator: denominator.toNumber()
+        };
+        
+        currentRate.textContent = `${exchangeRate.numerator} Token1 = ${exchangeRate.denominator} Token2`;
+        
+        // Update the input fields with current values
+        newNumerator.value = exchangeRate.numerator;
+        newDenominator.value = exchangeRate.denominator;
+      } catch (error) {
+        console.error('Failed to update exchange rate:', error);
+      }
+    }
+
+    // Update token1 to token2 estimate
+    function updateToken1Estimate() {
+      const amount = parseFloat(token1Amount.value) || 0;
+      if (exchangeRate.numerator > 0) {
+        const estimatedToken2 = amount * exchangeRate.denominator / exchangeRate.numerator;
+        token1Estimate.textContent = `You will receive: ${estimatedToken2.toFixed(6)} Token2`;
+      }
+    }
+
+    // Update token2 to token1 estimate
+    function updateToken2Estimate() {
+      const amount = parseFloat(token2Amount.value) || 0;
+      if (exchangeRate.denominator > 0) {
+        const estimatedToken1 = amount * exchangeRate.numerator / exchangeRate.denominator;
+        token2Estimate.textContent = `You will receive: ${estimatedToken1.toFixed(6)} Token1`;
+      }
+    }
+
+    // Swap token1 for token2
+    async function swapToken1ForToken2() {
+      try {
+        const amount = token1Amount.value;
+        if (!amount || parseFloat(amount) <= 0) {
+          alert('Please enter a valid amount');
+          return;
+        }
+        
+        // Show transaction status
+        showTransactionStatus('Checking allowance...');
+        
+        // Check if there's sufficient allowance
+        const amountWei = ethers.utils.parseUnits(amount, 18);
+        const allowance = await token1Contract.allowance(userAddress, exchangeAddress);
+        
+        if (allowance.lt(amountWei)) {
+          // Request approval
+          showTransactionStatus('Requesting approval...');
+          const approveTx = await token1Contract.approve(exchangeAddress, amountWei);
+          await approveTx.wait();
+        }
+        
+        // Execute swap
+        showTransactionStatus('Swapping tokens...');
+        const swapTx = await exchangeContract.exchangeToken1ForToken2(amountWei);
+        await swapTx.wait();
+        
+        // Update balances
+        await updateBalances();
+        
+        // Reset input
+        token1Amount.value = '';
+        updateToken1Estimate();
+        
+        // Hide status and show success
+        hideTransactionStatus();
+        alert('Swap completed successfully!');
+        
+      } catch (error) {
+        console.error('Swap error:', error);
+        hideTransactionStatus();
+        alert('Failed to swap tokens: ' + error.message);
+      }
+    }
+
+    // Swap token2 for token1
+    async function swapToken2ForToken1() {
+      try {
+        const amount = token2Amount.value;
+        if (!amount || parseFloat(amount) <= 0) {
+          alert('Please enter a valid amount');
+          return;
+        }
+        
+        // Show transaction status
+        showTransactionStatus('Checking allowance...');
+        
+        // Check if there's sufficient allowance
+        const amountWei = ethers.utils.parseUnits(amount, 18);
+        const allowance = await token2Contract.allowance(userAddress, exchangeAddress);
+        
+        if (allowance.lt(amountWei)) {
+          // Request approval
+          showTransactionStatus('Requesting approval...');
+          const approveTx = await token2Contract.approve(exchangeAddress, amountWei);
+          await approveTx.wait();
+        }
+        
+        // Execute swap
+        showTransactionStatus('Swapping tokens...');
+        const swapTx = await exchangeContract.exchangeToken2ForToken1(amountWei);
+        await swapTx.wait();
+        
+        // Update balances
+        await updateBalances();
+        
+        // Reset input
+        token2Amount.value = '';
+        updateToken2Estimate();
+        
+        // Hide status and show success
+        hideTransactionStatus();
+        alert('Swap completed successfully!');
+        
+      } catch (error) {
+        console.error('Swap error:', error);
+        hideTransactionStatus();
+        alert('Failed to swap tokens: ' + error.message);
+      }
+    }
+
+    // Update exchange rate (admin only)
+    async function updateRate() {
+      try {
+        const numerator = parseInt(newNumerator.value);
+        const denominator = parseInt(newDenominator.value);
+        
+        if (!numerator || numerator <= 0 || !denominator || denominator <= 0) {
+          alert('Please enter valid rate values');
+          return;
+        }
+        
+        // Show transaction status
+        showTransactionStatus('Updating exchange rate...');
+        
+        // Update rate
+        const tx = await exchangeContract.updateExchangeRate(numerator, denominator);
+        await tx.wait();
+        
+        // Update UI
+        await updateExchangeRate();
+        
+        // Hide status and show success
+        hideTransactionStatus();
+        alert('Exchange rate updated successfully!');
+        
+      } catch (error) {
+        console.error('Update rate error:', error);
+        hideTransactionStatus();
+        alert('Failed to update exchange rate: ' + error.message);
+      }
+    }
+
+    // Show transaction status
+    function showTransactionStatus(message) {
+      transactionStatus.textContent = message;
+      transactionStatus.style.transform = 'translateY(0)';
+    }
+
+    // Hide transaction status
+    function hideTransactionStatus() {
+      transactionStatus.style.transform = 'translateY(100%)';
+    }
+  </script>
+</body>
+</html>
